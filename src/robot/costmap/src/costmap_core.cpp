@@ -4,7 +4,7 @@
 namespace robot {
 
 CostmapCore::CostmapCore(const rclcpp::Logger& logger)
-  : logger_(logger) {}
+  : logger_(logger), origin_x_(50), origin_y_(50) {}
 
 void CostmapCore::initializeCostmap() {
   int size = 100;
@@ -19,8 +19,8 @@ void CostmapCore::initializeCostmap() {
 
 void CostmapCore::convertToGrid(double range, double angle, int &x_grid, int &y_grid) {
   double resolution = 0.1;
-  x_grid = static_cast<int>(range * cos(angle) / resolution);
-  y_grid = static_cast<int>(range * sin(angle) / resolution);
+  x_grid = static_cast<int>(range * cos(angle) / resolution) + origin_x_;
+  y_grid = static_cast<int>(range * sin(angle) / resolution) + origin_y_;
 }
 
 void CostmapCore::markObstacle(int x_grid, int y_grid) {
@@ -41,13 +41,7 @@ void CostmapCore::inflateObstacles() {
             int nx = x + dx;
             int ny = y + dy;
             if (nx >= 0 && nx < 100 && ny >= 0 && ny < 100) {
-              double distance = sqrt(dx * dx + dy * dy);
-              if (distance <= inflation_radius) {
-                int cost = static_cast<int>(max_cost * (1 - distance / inflation_radius));
-                if (cost > inflated_costmap[nx][ny]) {
-                  inflated_costmap[nx][ny] = cost;
-                }
-              }
+              inflated_costmap[nx][ny] = std::max(inflated_costmap[nx][ny], max_cost - (std::abs(dx) + std::abs(dy)));
             }
           }
         }

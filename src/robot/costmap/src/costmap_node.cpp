@@ -9,7 +9,7 @@
 #include "costmap_node.hpp"
 
 CostmapNode::CostmapNode() : Node("costmap"), costmap_core_(this->get_logger()) {
-  // Initialize the constructs and their parameters
+  // Initialize publishers and subscribers
   string_pub_ = this->create_publisher<std_msgs::msg::String>("/test_topic", 10);
   timer_ = this->create_wall_timer(std::chrono::milliseconds(500), std::bind(&CostmapNode::publishMessage, this));
   costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/costmap", 10);
@@ -29,9 +29,9 @@ void CostmapNode::publishMessage() {
 void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan) {
   costmap_core_.initializeCostmap();
   for (size_t i = 0; i < scan->ranges.size(); ++i) {
-    double angle = scan->angle_min + i * scan->angle_increment;
     double range = scan->ranges[i];
-    if (range < scan->range_max && range > scan->range_min) {
+    if (std::isfinite(range)) {
+      double angle = scan->angle_min + i * scan->angle_increment;
       int x_grid, y_grid;
       costmap_core_.convertToGrid(range, angle, x_grid, y_grid);
       costmap_core_.markObstacle(x_grid, y_grid);
@@ -42,25 +42,26 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
 }
 
 void CostmapNode::publishCostmap() {
-  // publish the costmap as an occupancygrid message
-  auto msg = nav_msgs::msg::OccupancyGrid();
-  msg.header.frame_id = "map";
-  msg.header.stamp = this->now();
-  msg.info.resolution = 0.1;
-  msg.info.width = 100;
-  msg.info.height = 100;
-  msg.info.origin.position.x = 0.0;
-  msg.info.origin.position.y = 0.0;
-  msg.info.origin.position.z = 0.0;
-  msg.info.origin.orientation.w = 1.0;
-  msg.data.resize(100 * 100);
-  const auto& costmap = costmap_core_.getCostmap();
-  for (int x = 0; x < 100; ++x) {
-    for (int y = 0; y < 100; ++y) {
-      msg.data[y * 100 + x] = costmap[x][y];
+  auto costmap = costmap_core_.getCostmap();
+  nav_msgs::msg::OccupancyGrid occupancy_grid;
+  occupancy_grid.header.stamp = this->now();
+  occupancy_grid.header.frame_id = "map";
+  occupancy_grid.info.resolution = 0.1;
+  occupancy_grid.info.width = costmap.size();
+  occupancy_grid.info.height = costmap[0].size();
+  occupancy_grid.info.origin.position.x = -5.0; // Adjust based on your origin
+  occupancy_grid.info.origin.position.y = -5.0; // Adjust based on your origin
+  occupancy_grid.info.origin.position.z = 0.0;
+  occupancy_grid.info.origin.orientation.w = 1.0;
+
+  occupancy_grid.data.resize(occupancy_grid.info.width * occupancy_grid.info.height);
+  for (size_t i = 0; i < costmap.size(); ++i) {
+    for (size_t j = 0; j < costmap[i].size(); ++j) {
+      occupancy_grid.data[i * costmap.size() + j] = costmap[i][j];
     }
   }
-  costmap_pub_->publish(msg);
+
+  costmap_pub_->publish(occupancy_grid);
 }
 
 int main(int argc, char ** argv) {
