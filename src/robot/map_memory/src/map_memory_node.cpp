@@ -3,43 +3,116 @@
 MapMemoryNode::MapMemoryNode() 
   : Node("map_memory"), 
     map_memory_(robot::MapMemoryCore(this->get_logger())),
-    last_x_(0.0), last_y_(0.0), distance_threshold_(1.5) {
+    last_robot_x_(0.0), last_robot_y_(0.0), distance_threshold_(1.5) {
   
-  costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-      "/costmap", 10, std::bind(&MapMemoryNode::costmapCallback, this, std::placeholders::_1));
-  
+  // Load ROS2 yaml parameters
+  processParameters();
+
+  // Subscribe to local costmap
+  local_costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+    local_costmap_topic_,
+    10,
+    std::bind(&MapMemoryNode::localCostmapCallback, this, std::placeholders::_1)
+  );
+
+  // Subscribe to odometry
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "/odom/filtered", 10, std::bind(&MapMemoryNode::odomCallback, this, std::placeholders::_1));
-  
-  map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", 10);
-  
+    odom_topic_,
+    10,
+    std::bind(&MapMemoryNode::odomCallback, this, std::placeholders::_1)
+  );
+
+  // Publish a global costmap for downstream path planning
+  global_costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+    map_topic_,
+    10
+  );
+
   timer_ = this->create_wall_timer(
-      std::chrono::seconds(1), std::bind(&MapMemoryNode::updateMap, this));
+    std::chrono::milliseconds(map_pub_rate_),
+    std::bind(&MapMemoryNode::timerCallback, this)
+  );
+
+  map_memory_.initMapMemory(
+    resolution_, 
+    width_, 
+    height_, 
+    origin_
+  );
+
+  RCLCPP_INFO(this->get_logger(), "Initialized Map Memory Core");
 }
 
-void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
-  latest_costmap_ = *msg;
-  costmap_updated_ = true;
+void MapMemoryNode::processParameters() {
+  // Declare all ROS2 Parameters
+  this->declare_parameter<std::string>("local_costmap_topic", "/costmap");
+  this->declare_parameter<std::string>("odom_topic", "/odom/filtered");
+  this->declare_parameter<std::string>("map_topic", "/map");
+  this->declare_parameter<int>("map_pub_rate", 500);
+  this->declare_parameter<double>("update_distance", 1.0);
+  this->declare_parameter<double>("global_map.resolution", 0.1);
+  this->declare_parameter<int>("global_map.width", 100);
+  this->declare_parameter<int>("global_map.height", 100);
+  this->declare_parameter<double>("global_map.origin.position.x", -5.0);
+  this->declare_parameter<double>("global_map.origin.position.y", -5.0);
+  this->declare_parameter<double>("global_map.origin.orientation.w", 1.0);
+
+  // Retrieve parameters and store them in member variables
+  local_costmap_topic_ = this->get_parameter("local_costmap_topic").as_string();
+  odom_topic_ = this->get_parameter("odom_topic").as_string();
+  map_topic_ = this->get_parameter("map_topic").as_string();
+  map_pub_rate_ = this->get_parameter("map_pub_rate").as_int();
+  update_distance_ = this->get_parameter("update_distance").as_double();
+  resolution_ = this->get_parameter("global_map.resolution").as_double();
+  width_ = this->get_parameter("global_map.width").as_int();
+  height_ = this->get_parameter("global_map.height").as_int();
+  origin_.position.x = this->get_parameter("global_map.origin.position.x").as_double();
+  origin_.position.y = this->get_parameter("global_map.origin.position.y").as_double();
+  origin_.orientation.w = this->get_parameter("global_map.origin.orientation.w").as_double();
+}
+
+void MapMemoryNode::localCostmapCallback(
+  const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+
+  bool all_zero = std::all_of(msg->data.begin(), msg->data.end(),
+                            [](int8_t val) { return val == 0; });
+  if (all_zero) {
+    RCLCPP_INFO(this->get_logger(), "All elements in the array are zero.");
+    return;
+  }
+
+  // Check how far the robot has moved since last update
+  if (!std::isnan(last_robot_x_))
+  {
+    double dist = std::hypot(robot_x_ - last_robot_x_, robot_y_ - last_robot_y_);
+    if (dist < update_distance_)
+    {
+      // Robot hasn’t moved enough, skip updating the global map
+      return;
+    }
+  }
+
+  // Update last position
+  last_robot_x_ = robot_x_;
+  last_robot_y_ = robot_y_;
+
+  // Update the global map
+  map_memory_.updateMap(msg, robot_x_, robot_y_, robot_theta_);
 }
 
 void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-  double x = msg->pose.pose.position.x;
-  double y = msg->pose.pose.position.y;
-
-  double distance = std::sqrt(std::pow(x - last_x_, 2) + std::pow(y - last_y_, 2));
-  if (distance >= distance_threshold_) {
-    last_x_ = x;
-    last_y_ = y;
-    should_update_map_ = true;
-  }
+  // Extract the robot’s position from the Odometry message.
+  robot_x_ = msg->pose.pose.position.x;
+  robot_y_ = msg->pose.pose.position.y;
+  robot_theta_ = 0.0; // Assuming no orientation is needed
 }
 
-void MapMemoryNode::updateMap() {
-  if (should_update_map_ && costmap_updated_) {
-    map_memory_.integrateCostmap(latest_costmap_);
-    map_pub_->publish(map_memory_.getGlobalMap());
-    should_update_map_ = false;
-  }
+void MapMemoryNode::timerCallback() {
+  // Publish the map every map_pub_rate [ms]
+  nav_msgs::msg::OccupancyGrid map_msg = *map_memory_.getMapData();
+  map_msg.header.stamp = this->now();
+  map_msg.header.frame_id = "sim_world";
+  global_costmap_pub_->publish(map_msg);
 }
 
 int main(int argc, char ** argv)

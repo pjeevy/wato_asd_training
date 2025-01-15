@@ -1,58 +1,99 @@
-#include "costmap_core.hpp"
+#include <algorithm>
+#include <queue>
 #include <cmath>
+#include "costmap_core.hpp"
 
-namespace robot {
+namespace robot
+{
 
-CostmapCore::CostmapCore(const rclcpp::Logger& logger)
-  : logger_(logger), origin_x_(50), origin_y_(50) {}
+CostmapCore::CostmapCore(const rclcpp::Logger& logger) : costmap_data_(std::make_shared<nav_msgs::msg::OccupancyGrid>()), logger_(logger) {}
 
-void CostmapCore::initializeCostmap() {
-  int size = 100;
-  costmap_.resize(size);
-  for (int i = 0; i < size; i++) {
-    costmap_[i].resize(size);
-    for (int j = 0; j < size; j++) {
-      costmap_[i][j] = 0;
+void CostmapCore::initCostmap(double resolution, int width, int height, geometry_msgs::msg::Pose origin, double inflation_radius) {
+  costmap_data_->info.resolution = resolution;
+  costmap_data_->info.width = width;
+  costmap_data_->info.height = height;
+  costmap_data_->info.origin = origin;
+  costmap_data_->data.assign(width * height, -1);
+
+  inflation_radius_ = inflation_radius;
+  inflation_cells_ = static_cast<int>(inflation_radius / resolution);
+}
+
+void CostmapCore::updateCostmap(const sensor_msgs::msg::LaserScan::SharedPtr laserscan) const {
+  // reset costmap
+  for (size_t i = 0; i < costmap_data_->data.size(); ++i) {
+    costmap_data_->data[i] = 0;
+  }
+
+  double angle = laserscan->angle_min;
+  for (size_t i = 0; i < laserscan->ranges.size(); ++i, angle += laserscan->angle_increment) {
+    double range = laserscan->ranges[i];
+
+    if (range >= laserscan->range_min && range <= laserscan->range_max) { //check for validity
+      double x = range * std::cos(angle);
+      double y = range * std::sin(angle);
+
+      // convert to grid coordinates
+      int grid_x = (x - costmap_data_->info.origin.position.x) / costmap_data_->info.resolution;
+      int grid_y = (y - costmap_data_->info.origin.position.y) / costmap_data_->info.resolution;
+
+      if (grid_x >= 0 && grid_x < costmap_data_->info.width &&
+        grid_y >= 0 && grid_y < costmap_data_->info.height) {
+        // Mark the cell as occupied
+        int index = grid_y * costmap_data_->info.width + grid_x;
+        costmap_data_->data[index] = 100;  // 100 indicates an occupied cell
+
+        // Inflate around the obstacle
+        inflateObstacle(grid_x, grid_y);
+      }
     }
   }
 }
 
-void CostmapCore::convertToGrid(double range, double angle, int &x_grid, int &y_grid) {
-  double resolution = 0.1;
-  x_grid = static_cast<int>(range * cos(angle) / resolution) + origin_x_;
-  y_grid = static_cast<int>(range * sin(angle) / resolution) + origin_y_;
-}
+void CostmapCore::inflateObstacle(int origin_x, int origin_y) const {
+  // bfs to mark cells within inflation radius
+  std::queue<std::pair<int, int>> queue;
+  queue.emplace(origin_x, origin_y);
 
-void CostmapCore::markObstacle(int x_grid, int y_grid) {
-  if (x_grid >= 0 && x_grid < 100 && y_grid >= 0 && y_grid < 100) {
-    costmap_[x_grid][y_grid] = 100;
-  }
-}
+  std::vector<std::vector<bool>> visited(costmap_data_->info.width, std::vector<bool>(costmap_data_->info.height, false));
+  visited[origin_x][origin_y] = true;
 
-void CostmapCore::inflateObstacles() {
-  int inflation_radius = 10; // 1 meter / 0.1 meter per cell
-  int max_cost = 100;
-  std::vector<std::vector<int>> inflated_costmap = costmap_;
-  for (int x = 0; x < 100; ++x) {
-    for (int y = 0; y < 100; ++y) {
-      if (costmap_[x][y] == 100) {
-        for (int dx = -inflation_radius; dx <= inflation_radius; ++dx) {
-          for (int dy = -inflation_radius; dy <= inflation_radius; ++dy) {
-            int nx = x + dx;
-            int ny = y + dy;
-            if (nx >= 0 && nx < 100 && ny >= 0 && ny < 100) {
-              inflated_costmap[nx][ny] = std::max(inflated_costmap[nx][ny], max_cost - (std::abs(dx) + std::abs(dy)));
-            }
+  while (!queue.empty()) {
+    auto [x, y] = queue.front();
+    queue.pop();
+
+    // neighbouring cells
+    for (int dx = -1; dx <= 1; ++dx) {
+      for (int dy = -1; dy <= 1; ++dy) {
+        if (dx == 0 && dy == 0) continue;  // skip the origin cell
+
+        int nx = x + dx;
+        int ny = y + dy;
+
+        if (nx >= 0 && nx < costmap_data_->info.width &&
+          ny >= 0 && ny < costmap_data_->info.height &&
+          !visited[nx][ny]) {
+          
+          double distance = std::sqrt((nx - origin_x) * (nx - origin_x) + (ny - origin_y) * (ny - origin_y)) * costmap_data_->info.resolution;
+
+          // if in radius, mark cell as inflated
+          if (distance <= inflation_radius_) {
+              int index = ny * costmap_data_->info.width + nx;
+              if (costmap_data_->data[index] < (1 - (distance / inflation_radius_)) * 100) {
+                costmap_data_->data[index] = (1 - (distance / inflation_radius_)) * 100;
+              }
+              queue.emplace(nx, ny);
           }
+
+          visited[nx][ny] = true;
         }
       }
     }
   }
-  costmap_ = inflated_costmap;
 }
 
-const std::vector<std::vector<int>>& CostmapCore::getCostmap() const {
-  return costmap_;
+nav_msgs::msg::OccupancyGrid::SharedPtr CostmapCore::getCostmapData() const {
+  return costmap_data_;
 }
 
 }
