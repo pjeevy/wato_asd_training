@@ -24,7 +24,6 @@ class MapMemoryNode : public rclcpp::Node {
     robot::MapMemoryCore map_memory_;
     double last_robot_x_, last_robot_y_;
     double robot_x_, robot_y_, robot_theta_;
-    double distance_threshold_;
     double update_distance_;
     std::string local_costmap_topic_;
     std::string odom_topic_;

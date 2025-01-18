@@ -17,13 +17,14 @@ void CostmapCore::initCostmap(double resolution, int width, int height, geometry
 
   inflation_radius_ = inflation_radius;
   inflation_cells_ = static_cast<int>(inflation_radius / resolution);
+
+  RCLCPP_INFO(logger_, "Costmap initialized with resolution: %.2f, width: %d, height: %d",
+              resolution, width, height);
 }
 
 void CostmapCore::updateCostmap(const sensor_msgs::msg::LaserScan::SharedPtr laserscan) const {
-  // reset costmap
-  for (size_t i = 0; i < costmap_data_->data.size(); ++i) {
-    costmap_data_->data[i] = 0;
-  }
+  // Reset the costmap to free space
+  std::fill(costmap_data_->data.begin(), costmap_data_->data.end(), 0);
 
   double angle = laserscan->angle_min;
   for (size_t i = 0; i < laserscan->ranges.size(); ++i, angle += laserscan->angle_increment) {

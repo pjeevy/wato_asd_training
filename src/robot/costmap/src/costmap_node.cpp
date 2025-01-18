@@ -6,33 +6,52 @@
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "costmap_node.hpp"
 
-CostmapNode::CostmapNode() : Node("costmap"), costmap_(robot::CostmapCore(this->get_logger())) {
-  // Initialize publishers and subscribers
-  costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/costmap", 10);
+CostmapNode::CostmapNode() 
+: Node("costmap"), costmap_(robot::CostmapCore(this->get_logger())) 
+{
+  processParameters();
+
   laser_scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
-    "/lidar", 10, std::bind(&CostmapNode::laserScanCallback, this, std::placeholders::_1));
+    laserscan_topic_, 10,
+    std::bind(&CostmapNode::laserScanCallback, this, std::placeholders::_1));
 
-  RCLCPP_INFO(this->get_logger(), "Initialized ROS Constructs");
+  costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(costmap_topic_, 10);
 
-  // Initialize costmap parameters
-  double resolution = 0.1;
-  int width = 100;
-  int height = 100;
-  geometry_msgs::msg::Pose origin;
-  origin.position.x = -5.0;
-  origin.position.y = -5.0;
-  origin.orientation.w = 1.0;
-  double inflation_radius = 1.0;
-
-  costmap_.initCostmap(resolution, width, height, origin, inflation_radius);
+  costmap_.initCostmap(
+    resolution_,
+    width_,
+    height_,
+    origin_,
+    inflation_radius_
+  );
 
   RCLCPP_INFO(this->get_logger(), "Initialized Costmap Core");
 }
 
+void CostmapNode::processParameters() {
+  this->declare_parameter<std::string>("laserscan_topic", "/lidar");
+  this->declare_parameter<std::string>("costmap_topic", "/costmap");
+  this->declare_parameter<double>("resolution", 0.1);
+  this->declare_parameter<int>("width", 300);
+  this->declare_parameter<int>("height", 300);
+  this->declare_parameter<double>("origin_x", -15.0);
+  this->declare_parameter<double>("origin_y", -15.0);
+  this->declare_parameter<double>("origin_w", 1.0);
+  this->declare_parameter<double>("inflation_radius", 1.0);
+
+  laserscan_topic_ = this->get_parameter("laserscan_topic").as_string();
+  costmap_topic_ = this->get_parameter("costmap_topic").as_string();
+  resolution_ = this->get_parameter("resolution").as_double();
+  width_ = this->get_parameter("width").as_int();
+  height_ = this->get_parameter("height").as_int();
+  origin_.position.x = this->get_parameter("origin_x").as_double();
+  origin_.position.y = this->get_parameter("origin_y").as_double();
+  origin_.orientation.w = this->get_parameter("origin_w").as_double();
+  inflation_radius_ = this->get_parameter("inflation_radius").as_double();
+}
+
 void CostmapNode::laserScanCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan) const {
-  // Update the costmap according to the laser scan
   costmap_.updateCostmap(scan);
-  // Publish the costmap
   nav_msgs::msg::OccupancyGrid costmap_msg = *costmap_.getCostmapData();
   costmap_msg.header = scan->header;
   costmap_pub_->publish(costmap_msg);

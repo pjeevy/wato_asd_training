@@ -17,6 +17,8 @@ find_package(std_msgs REQUIRED)    # Standard ROS2 messages
 find_package(sensor_msgs REQUIRED) # Sensor messages
 find_package(nav_msgs REQUIRED)    # Navigation messages
 
+# Normally no extra dependencies are needed for parameter usage in rclcpp
+
 # Compiles source files into a library
 add_library(costmap_lib
   src/costmap_core.cpp)

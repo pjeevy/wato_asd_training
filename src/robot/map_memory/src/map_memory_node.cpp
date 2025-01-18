@@ -1,9 +1,10 @@
 #include "map_memory_node.hpp"
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Matrix3x3.h"
 
 MapMemoryNode::MapMemoryNode() 
   : Node("map_memory"), 
-    map_memory_(robot::MapMemoryCore(this->get_logger())),
-    last_robot_x_(0.0), last_robot_y_(0.0), distance_threshold_(1.5) {
+    map_memory_(robot::MapMemoryCore(this->get_logger())) {
   
   // Load ROS2 yaml parameters
   processParameters();
@@ -51,10 +52,10 @@ void MapMemoryNode::processParameters() {
   this->declare_parameter<int>("map_pub_rate", 500);
   this->declare_parameter<double>("update_distance", 1.0);
   this->declare_parameter<double>("global_map.resolution", 0.1);
-  this->declare_parameter<int>("global_map.width", 100);
-  this->declare_parameter<int>("global_map.height", 100);
-  this->declare_parameter<double>("global_map.origin.position.x", -5.0);
-  this->declare_parameter<double>("global_map.origin.position.y", -5.0);
+  this->declare_parameter<int>("global_map.width", 300);
+  this->declare_parameter<int>("global_map.height", 300);
+  this->declare_parameter<double>("global_map.origin.position.x", -15.0);
+  this->declare_parameter<double>("global_map.origin.position.y", -15.0);
   this->declare_parameter<double>("global_map.origin.orientation.w", 1.0);
 
   // Retrieve parameters and store them in member variables
@@ -101,10 +102,18 @@ void MapMemoryNode::localCostmapCallback(
 }
 
 void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-  // Extract the robot’s position from the Odometry message.
   robot_x_ = msg->pose.pose.position.x;
   robot_y_ = msg->pose.pose.position.y;
-  robot_theta_ = 0.0; // Assuming no orientation is needed
+
+  double qx = msg->pose.pose.orientation.x;
+  double qy = msg->pose.pose.orientation.y;
+  double qz = msg->pose.pose.orientation.z;
+  double qw = msg->pose.pose.orientation.w;
+  tf2::Quaternion q(qx, qy, qz, qw);
+  tf2::Matrix3x3 m(q);
+  double roll, pitch, yaw;
+  m.getRPY(roll, pitch, yaw);
+  robot_theta_ = yaw;
 }
 
 void MapMemoryNode::timerCallback() {

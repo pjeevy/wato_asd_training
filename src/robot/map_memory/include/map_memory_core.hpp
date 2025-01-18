@@ -12,7 +12,6 @@ class MapMemoryCore {
   public:
     explicit MapMemoryCore(const rclcpp::Logger& logger);
     void initMapMemory(double resolution, int width, int height, geometry_msgs::msg::Pose origin);
-    void integrateCostmap(const nav_msgs::msg::OccupancyGrid& costmap);
     void updateMap(nav_msgs::msg::OccupancyGrid::SharedPtr local_costmap, double robot_x, double robot_y, double robot_theta);
     nav_msgs::msg::OccupancyGrid::SharedPtr getMapData() const;
 

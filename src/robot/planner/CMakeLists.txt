@@ -11,26 +11,39 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 # Search for dependencies required for building this package
-find_package(ament_cmake REQUIRED) # ROS2 build tool
-find_package(rclcpp REQUIRED)      # ROS2 C++ package
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(tf2 REQUIRED)
 
 # Compiles source files into a library
-# A library is not executed, instead other executables can link
-# against it to access defined methods and classes.
-# We build a library so that the methods defined can be used by
-# both the unit test and ROS2 node executables.
 add_library(planner_lib
   src/planner_core.cpp)
+
 # Indicate to compiler where to search for header files
 target_include_directories(planner_lib
   PUBLIC include)
+
 # Add ROS2 dependencies required by package
-ament_target_dependencies(planner_lib rclcpp)
+ament_target_dependencies(planner_lib
+  rclcpp
+  nav_msgs
+  tf2
+)
 
 # Create ROS2 node executable from source files
 add_executable(planner_node src/planner_node.cpp)
-# Link to the previously built library to access planner classes and methods
-target_link_libraries(planner_node planner_lib)
+
+# Link to the previously built library
+target_link_libraries(planner_node
+  planner_lib
+)
+
+ament_target_dependencies(planner_node
+  rclcpp
+  nav_msgs
+  tf2
+)
 
 # Copy executable to installation location
 install(TARGETS

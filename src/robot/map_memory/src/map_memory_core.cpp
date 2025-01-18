@@ -21,26 +21,7 @@ void MapMemoryCore::initMapMemory(
   RCLCPP_INFO(logger_, "Global Map initialized with resolution: %.2f, width: %d, height: %d", resolution, width, height);
 }
 
-void MapMemoryCore::integrateCostmap(const nav_msgs::msg::OccupancyGrid& costmap) {
-  // Ensure the global map is initialized
-  if (global_map_->data.empty()) {
-    *global_map_ = costmap;
-    return;
-  }
-
-  // Merge costmap into the global map
-  for (size_t y = 0; y < costmap.info.height; ++y) {
-    for (size_t x = 0; x < costmap.info.width; ++x) {
-      size_t index = y * costmap.info.width + x;
-      int8_t costmap_value = costmap.data[index];
-      int8_t& global_value = global_map_->data[index];
-
-      if (costmap_value != -1) { // If the cell is known in the costmap
-        global_value = costmap_value;
-      }
-    }
-  }
-}
+// Remove integrateCostmap
 
 void MapMemoryCore::updateMap(
   nav_msgs::msg::OccupancyGrid::SharedPtr local_costmap,
@@ -61,7 +42,7 @@ void MapMemoryCore::updateMap(
     {
       int8_t occ_val = local_data[j * local_w + i];
       if (occ_val < 0) {
-        // Unknown => skip or handle differently
+        // Unknown => skip
         continue;
       }
       // Convert (i,j) to local metric coords relative to "robot" frame
@@ -85,18 +66,12 @@ void MapMemoryCore::updateMap(
         continue;
       }
 
-      // --- Take the max cost instead of direct overwrite ---
+      // Overwrite global cell with local value if it’s not unknown (-1)
       int8_t &global_val = global_map_->data[gy * global_map_->info.width + gx];
-      
-      // If the global cell is unknown (-1), treat that as 0 when taking max.
-      int current_global_cost = (global_val < 0) ? 0 : global_val; 
+      // If the global cell is unknown (-1), treat that as 0:
+      int current_global_cost = (global_val < 0) ? 0 : global_val;
       int local_cost = static_cast<int>(occ_val);
-
-      // Merge by taking the maximum:
       int merged_cost = std::max(current_global_cost, local_cost);
-
-      // If merged_cost is still 0 but occ_val is not, it means local cost was 0 or unknown
-      // In that case, we might want to handle it differently; for simple max, we just do this:
       global_val = static_cast<int8_t>(merged_cost);
     }
   }
