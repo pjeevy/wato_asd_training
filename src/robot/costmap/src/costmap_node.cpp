@@ -37,7 +37,7 @@ void CostmapNode::processParameters() {
   this->declare_parameter<double>("origin_x", -15.0);
   this->declare_parameter<double>("origin_y", -15.0);
   this->declare_parameter<double>("origin_w", 1.0);
-  this->declare_parameter<double>("inflation_radius", 1.0);
+  this->declare_parameter<double>("inflation_radius", 1.5);
 
   laserscan_topic_ = this->get_parameter("laserscan_topic").as_string();
   costmap_topic_ = this->get_parameter("costmap_topic").as_string();
